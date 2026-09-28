@@ -1,7 +1,16 @@
+from dotenv import load_dotenv
 import os
-from openai import OpenAI
 
+load_dotenv()
 api_key = os.getenv("OPENAI_API_KEY")
+
+try:
+    OpenAI = import_module("openai").OpenAI
+except ModuleNotFoundError as exc:
+    raise ModuleNotFoundError(
+        "The 'openai' package is required. Install it with: pip install openai"
+    ) from exc
+
 if not api_key:
     raise ValueError("OPENAI_API_KEY is not set")
 
@@ -27,8 +36,15 @@ class SportAgent:
 
     def run(self, task):
         response = client.responses.create(
-            model="gpt-4o-mini",  # or another valid model in your account
+            model="gpt-5.6",  
             instructions=self.instructions,
-            input=str(task),
+            input=task,
         )
         return response.output_text
+
+
+if __name__ == "__main__":
+    agent = SportAgent()
+    task = "Analyze the matchup between Team A and Team B."
+    result = agent.run(task)
+    print(result)
