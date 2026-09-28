@@ -1,5 +1,6 @@
-import os
 from importlib import import_module
+from tools.sports_tools import get_team_info
+import os
 
 try:
     from dotenv import load_dotenv
@@ -33,6 +34,27 @@ class SportAgent:
         Do not invent statistics or sources.
         If you do not know, say you do not know.
         """
+
+        self.tools = [
+    {
+        "type": "function",
+        "name": "get_team_info",
+        "description": "Gets basic information about a sports team, including sport type and status.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "team": {
+                    "type": "string",
+                    "description": "The name of the sports team to retrieve information for."
+                }
+            },
+            "required": ["team"]
+        }
+    }
+]
+
+
+        
 
         api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
