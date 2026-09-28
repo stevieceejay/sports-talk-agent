@@ -1,30 +1,34 @@
+import os
 from openai import OpenAI
-imoprt os
 
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+api_key = os.getenv("OPENAI_API_KEY")
+if not api_key:
+    raise ValueError("OPENAI_API_KEY is not set")
 
-class SportAgent: 
+client = OpenAI(api_key=api_key)
 
+
+class SportAgent:
     def __init__(self):
-        self.instructions = """you are a sports analysis agent.
+        self.instructions = """
+        You are a sports analysis agent.
 
         Your job is to analyze sports matchups using:
-        -recent performance
-        -team statistics
-        -injuries
-        -matchup characteristics
-        -situational factors
+        - recent performance
+        - team statistics
+        - injuries
+        - matchup characteristics
+        - situational factors
 
         Explain your reasoning clearly.
-        So not invent statistics or information. If you don't know, say you don't know.
-        So not invent sources.
+        Do not invent statistics or sources.
+        If you do not know, say you do not know.
         """
-
 
     def run(self, task):
         response = client.responses.create(
-            model="gpt-5.6",
+            model="gpt-4o-mini",  # or another valid model in your account
             instructions=self.instructions,
-            input=task
+            input=str(task),
         )
         return response.output_text
