@@ -1,8 +1,13 @@
-from dotenv import load_dotenv
 import os
+from importlib import import_module
+
+try:
+    from dotenv import load_dotenv
+except ModuleNotFoundError:
+    def load_dotenv():
+        return None
 
 load_dotenv()
-api_key = os.getenv("OPENAI_API_KEY")
 
 try:
     OpenAI = import_module("openai").OpenAI
@@ -10,11 +15,6 @@ except ModuleNotFoundError as exc:
     raise ModuleNotFoundError(
         "The 'openai' package is required. Install it with: pip install openai"
     ) from exc
-
-if not api_key:
-    raise ValueError("OPENAI_API_KEY is not set")
-
-client = OpenAI(api_key=api_key)
 
 
 class SportAgent:
@@ -34,11 +34,19 @@ class SportAgent:
         If you do not know, say you do not know.
         """
 
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            raise ValueError(
+                "OPENAI_API_KEY is not set. Add it to your shell or .env file."
+            )
+
+        self.client = OpenAI(api_key=api_key)
+
     def run(self, task):
-        response = client.responses.create(
-            model="gpt-5.6",  
+        response = self.client.responses.create(
+            model="gpt-5.6",
             instructions=self.instructions,
-            input=task,
+            input=str(task),
         )
         return response.output_text
 

@@ -1,8 +1,13 @@
-from agent import SportAgent  # type: ignore[attr-defined]
+from agent import SportAgent
 
-agent = SportAgent()
 
-result = agent.run(
-    "Analyze todays monday night football game between bears and eagles."
-)
-print(result)
+def main():
+    agent = SportAgent()
+    result = agent.run(
+        "Analyze today's Monday Night Football game between the Bears and Eagles."
+    )
+    print(result)
+
+
+if __name__ == "__main__":
+    main()
