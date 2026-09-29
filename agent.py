@@ -1,80 +1,105 @@
-from importlib import import_module
-from tools.sports_tools import get_team_info
+import json
 import os
 
-try:
-    from dotenv import load_dotenv
-except ModuleNotFoundError:
-    def load_dotenv():
-        return None
+from dotenv import load_dotenv
+from openai import OpenAI
 
-load_dotenv()
-
-try:
-    OpenAI = import_module("openai").OpenAI
-except ModuleNotFoundError as exc:
-    raise ModuleNotFoundError(
-        "The 'openai' package is required. Install it with: pip install openai"
-    ) from exc
+from tools.sports_tools import get_team_info
 
 
 class SportAgent:
     def __init__(self):
+        load_dotenv()
+        self.client = OpenAI()
+        self.model = "gpt-5.6"
         self.instructions = """
-        You are a sports analysis agent.
+You are a sports analysis agent.
 
-        Your job is to analyze sports matchups using:
-        - recent performance
-        - team statistics
-        - injuries
-        - matchup characteristics
-        - situational factors
-
-        Explain your reasoning clearly.
-        Do not invent statistics or sources.
-        If you do not know, say you do not know.
-        """
+Analyze matchups using only information supplied by tools or the user.
+Consider recent performance, team statistics, injuries, matchup
+characteristics, and situational factors when that data is available.
+Clearly distinguish facts from opinions. Never invent data or sources.
+If required information is unavailable, say so.
+""".strip()
 
         self.tools = [
-    {
-        "type": "function",
-        "name": "get_team_info",
-        "description": "Gets basic information about a sports team, including sport type and status.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "team": {
-                    "type": "string",
-                    "description": "The name of the sports team to retrieve information for."
-                }
-            },
-            "required": ["team"]
-        }
-    }
-]
+            {
+                "type": "function",
+                "name": "get_team_info",
+                "description": "Get the available information for a sports team.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "team": {
+                            "type": "string",
+                            "description": "The full or common name of the team.",
+                        }
+                    },
+                    "required": ["team"],
+                    "additionalProperties": False,
+                },
+                "strict": True,
+            }
+        ]
 
-
-        
-
-        api_key = os.getenv("OPENAI_API_KEY")
-        if not api_key:
-            raise ValueError(
-                "OPENAI_API_KEY is not set. Add it to your shell or .env file."
-            )
-
-        self.client = OpenAI(api_key=api_key)
+    def _execute_tool(self, name, arguments):
+        if name == "get_team_info":
+            return get_team_info(**arguments)
+        raise ValueError(f"Unknown tool requested: {name}")
 
     def run(self, task):
+        if not isinstance(task, str) or not task.strip():
+            raise ValueError("task must be a non-empty string")
+
         response = self.client.responses.create(
-            model="gpt-5.6",
+            model=self.model,
             instructions=self.instructions,
-            input=str(task),
+            input=task.strip(),
+            tools=self.tools,
         )
-        return response.output_text
+
+        for _ in range(8):
+            calls = [
+                item for item in response.output if item.type == "function_call"
+            ]
+
+            if not calls:
+                if not response.output_text:
+                    raise RuntimeError("The model returned no final text.")
+                return response.output_text
+
+            tool_outputs = []
+
+            for call in calls:
+                try:
+                    arguments = json.loads(call.arguments)
+                    result = self._execute_tool(call.name, arguments)
+                    output = json.dumps(result)
+                except Exception as exc:
+                    output = json.dumps({"error": str(exc)})
+
+                tool_outputs.append(
+                    {
+                        "type": "function_call_output",
+                        "call_id": call.call_id,
+                        "output": output,
+                    }
+                )
+
+            response = self.client.responses.create(
+                model=self.model,
+                instructions=self.instructions,
+                previous_response_id=response.id,
+                input=tool_outputs,
+                tools=self.tools,
+            )
+
+        raise RuntimeError("The agent exceeded the maximum number of tool rounds.")
 
 
 if __name__ == "__main__":
     agent = SportAgent()
-    task = "Analyze the matchup between Team A and Team B."
+    task = "use get_team_info to get information on the Eagles and Bears game Then tell me what information the tool returned."
     result = agent.run(task)
     print(result)
+
