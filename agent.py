@@ -4,9 +4,18 @@ import os
 from dotenv import load_dotenv
 from openai import OpenAI
 
+from tools.live_tools import get_live_nfl_standings, get_team_news, get_weather_for_city
 from tools.query_nfl_db import (
+    get_explosive_plays,
     get_explosive_summary,
+    get_matchup_snapshot,
+    get_scheme_fit,
+    get_team_game_log,
+    get_team_rankings,
     get_team_recent_games,
+    get_team_recent_plays,
+    get_team_record_vs_opponent,
+    get_team_schedule,
     get_team_season_rollup,
     query_nfl_db,
 )
@@ -109,6 +118,183 @@ Stop and explain that the requested data is unavailable in the current dataset.
                 },
                 "strict": True,
             },
+            {
+                "type": "function",
+                "name": "get_explosive_plays",
+                "description": "Fetch explosive-play totals by team for a season or across all seasons.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "season": {"type": "integer", "nullable": True},
+                    },
+                    "required": ["season"],
+                    "additionalProperties": False,
+                },
+                "strict": True,
+            },
+            {
+                "type": "function",
+                "name": "get_team_recent_plays",
+                "description": "Return recent game history for a team from the database.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "team": {"type": "string"},
+                        "limit": {"type": "integer"},
+                    },
+                    "required": ["team", "limit"],
+                    "additionalProperties": False,
+                },
+                "strict": True,
+            },
+            {
+                "type": "function",
+                "name": "get_team_rankings",
+                "description": "Return season rankings across teams ordered by wins and point differential.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "season": {"type": "integer", "nullable": True},
+                        "limit": {"type": "integer"},
+                    },
+                    "required": ["season", "limit"],
+                    "additionalProperties": False,
+                },
+                "strict": True,
+            },
+            {
+                "type": "function",
+                "name": "get_matchup_snapshot",
+                "description": "Return a lightweight season snapshot for two teams from the database, including record and scoring data.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "team_a": {"type": "string"},
+                        "team_b": {"type": "string"},
+                        "season": {"type": "integer", "nullable": True},
+                    },
+                    "required": ["team_a", "team_b", "season"],
+                    "additionalProperties": False,
+                },
+                "strict": True,
+            },
+            {
+                "type": "function",
+                "name": "get_team_record_vs_opponent",
+                "description": "Return a team's game history against a specific opponent from the database.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "team": {"type": "string"},
+                        "opponent": {"type": "string"},
+                        "season": {"type": "integer", "nullable": True},
+                    },
+                    "required": ["team", "opponent", "season"],
+                    "additionalProperties": False,
+                },
+                "strict": True,
+            },
+            {
+                "type": "function",
+                "name": "get_team_game_log",
+                "description": "Return the recent game log for a team, including opponent, venue, score, and result.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "team": {"type": "string"},
+                        "season": {"type": "integer", "nullable": True},
+                        "limit": {"type": "integer"},
+                    },
+                    "required": ["team", "season", "limit"],
+                    "additionalProperties": False,
+                },
+                "strict": True,
+            },
+            {
+                "type": "function",
+                "name": "get_team_schedule",
+                "description": "Return the schedule for a team, including opponent, venue, and game result.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "team": {"type": "string"},
+                        "season": {"type": "integer", "nullable": True},
+                    },
+                    "required": ["team", "season"],
+                    "additionalProperties": False,
+                },
+                "strict": True,
+            },
+            {
+                "type": "function",
+                "name": "get_weather_for_city",
+                "description": "Fetch current or near-term weather for a city using a public no-key weather API.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "city": {"type": "string"},
+                        "date_value": {"type": "string", "nullable": True},
+                    },
+                    "required": ["city", "date_value"],
+                    "additionalProperties": False,
+                },
+                "strict": True,
+            },
+            {
+                "type": "function",
+                "name": "get_live_nfl_standings",
+                "description": "Return current NFL standings from the ESPN live standings feed for a season.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "season": {"type": "integer", "nullable": True},
+                    },
+                    "required": ["season"],
+                    "additionalProperties": False,
+                },
+                "strict": True,
+            },
+            {
+                "type": "function",
+                "name": "get_team_news",
+                "description": "Return the most recent ESPN news headlines for a team.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "team": {"type": "string"},
+                        "limit": {"type": "integer"},
+                    },
+                    "required": ["team", "limit"],
+                    "additionalProperties": False,
+                },
+                "strict": True,
+            },
+            {
+                "type": "function",
+                "name": "get_scheme_fit",
+                "description": "Fetch scheme-vs-scheme data for one NFL team: man coverage rate, zone coverage rate, blitz rate, base front, and personnel-grouping tendency.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "team": {
+                            "type": "string",
+                            "description": "Team abbreviation, e.g. 'WAS'",
+                        },
+                        "season": {
+                            "type": "integer",
+                            "description": "e.g. 2026",
+                        },
+                        "side": {
+                            "type": "string",
+                            "enum": ["offense", "defense"],
+                            "description": "Which side of the ball to pull scheme data for",
+                        },
+                    },
+                    "required": ["team", "season", "side"],
+                    "additionalProperties": False,
+                },
+                "strict": True,
+            },
         ]
 
     def _execute_tool(self, name, arguments):
@@ -122,6 +308,28 @@ Stop and explain that the requested data is unavailable in the current dataset.
             return get_team_recent_games(**arguments)
         if name == "get_explosive_summary":
             return get_explosive_summary(**arguments)
+        if name == "get_explosive_plays":
+            return get_explosive_plays(**arguments)
+        if name == "get_team_recent_plays":
+            return get_team_recent_plays(**arguments)
+        if name == "get_team_rankings":
+            return get_team_rankings(**arguments)
+        if name == "get_matchup_snapshot":
+            return get_matchup_snapshot(**arguments)
+        if name == "get_team_record_vs_opponent":
+            return get_team_record_vs_opponent(**arguments)
+        if name == "get_team_game_log":
+            return get_team_game_log(**arguments)
+        if name == "get_team_schedule":
+            return get_team_schedule(**arguments)
+        if name == "get_weather_for_city":
+            return get_weather_for_city(**arguments)
+        if name == "get_live_nfl_standings":
+            return get_live_nfl_standings(**arguments)
+        if name == "get_team_news":
+            return get_team_news(**arguments)
+        if name == "get_scheme_fit":
+            return get_scheme_fit(**arguments)
         raise ValueError(f"Unknown tool requested: {name}")
 
     def run(self, task):

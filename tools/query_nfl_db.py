@@ -93,6 +93,138 @@ def get_explosive_summary(season: int | None = None) -> dict[str, Any]:
     return _safe_query(query)
 
 
+def get_explosive_plays(season: int | None = None) -> dict[str, Any]:
+    """Alias for explosive-play summary data across teams."""
+    return get_explosive_summary(season=season)
+
+
+def get_team_recent_plays(team: str, limit: int = 5) -> dict[str, Any]:
+    """Alias for recent game history for a team."""
+    return get_team_recent_games(team=team, limit=limit)
+
+
+def get_team_rankings(season: int | None = None, limit: int = 10) -> dict[str, Any]:
+    """Fetch team rankings from the season rollup view, ordered by point differential or win rate."""
+    season_clause = "" if season is None else f"WHERE season = {int(season)}"
+    if limit <= 0:
+        raise ValueError("limit must be greater than zero")
+
+    query = f"""
+        SELECT season, team, wins, losses, points_for, points_against, point_differential
+        FROM v_season_team
+        {season_clause}
+        ORDER BY wins DESC, point_differential DESC
+        LIMIT {int(limit)}
+    """.strip()
+    return _safe_query(query)
+
+
+def get_matchup_snapshot(team_a: str, team_b: str, season: int | None = None) -> dict[str, Any]:
+    """Return a lightweight team-vs-team snapshot for two clubs from the season rollup view."""
+    team_a = (team_a or "").strip()
+    team_b = (team_b or "").strip()
+    if not team_a or not team_b:
+        raise ValueError("team_a and team_b must both be provided")
+
+    season_filter = "" if season is None else f"AND season = {int(season)}"
+    query = f"""
+        SELECT season, team, wins, losses, points_for, points_against, point_differential
+        FROM v_season_team
+        WHERE LOWER(team) IN (LOWER('{team_a.replace("'", "''")}'), LOWER('{team_b.replace("'", "''")}'))
+        {season_filter}
+        ORDER BY team ASC
+    """.strip()
+    return _safe_query(query)
+
+
+def get_team_record_vs_opponent(team: str, opponent: str, season: int | None = None) -> dict[str, Any]:
+    """Return a team's game history against one opponent from the game-level database view."""
+    team = (team or "").strip()
+    opponent = (opponent or "").strip()
+    if not team:
+        raise ValueError("team must not be empty")
+    if not opponent:
+        raise ValueError("opponent must not be empty")
+
+    season_clause = "" if season is None else f"AND season = {int(season)}"
+    query = f"""
+        SELECT season, week, game_date, team, opponent, venue, points_for, points_against, result
+        FROM v_team_game
+        WHERE LOWER(team) = LOWER('{team.replace("'", "''")}')
+          AND LOWER(opponent) = LOWER('{opponent.replace("'", "''")}')
+        {season_clause}
+        ORDER BY season DESC, week DESC
+    """.strip()
+    return _safe_query(query)
+
+
+def get_team_game_log(team: str, season: int | None = None, limit: int = 10) -> dict[str, Any]:
+    """Return the recent game log for a team, ordered from newest to oldest."""
+    team = (team or "").strip()
+    if not team:
+        raise ValueError("team must not be empty")
+    if limit <= 0:
+        raise ValueError("limit must be greater than zero")
+
+    season_clause = "" if season is None else f"AND season = {int(season)}"
+    query = f"""
+        SELECT season, week, game_date, team, opponent, venue, points_for, points_against, result
+        FROM v_team_game
+        WHERE LOWER(team) = LOWER('{team.replace("'", "''")}')
+        {season_clause}
+        ORDER BY season DESC, week DESC
+        LIMIT {int(limit)}
+    """.strip()
+    return _safe_query(query)
+
+
+def get_team_schedule(team: str, season: int | None = None) -> dict[str, Any]:
+    """Return the full schedule for a team from the game-level database view."""
+    team = (team or "").strip()
+    if not team:
+        raise ValueError("team must not be empty")
+
+    season_clause = "" if season is None else f"AND season = {int(season)}"
+    query = f"""
+        SELECT season, week, game_date, team, opponent, venue, points_for, points_against, result
+        FROM v_team_game
+        WHERE LOWER(team) = LOWER('{team.replace("'", "''")}')
+        {season_clause}
+        ORDER BY season ASC, week ASC
+    """.strip()
+    return _safe_query(query)
+
+
+def get_scheme_fit(team: str, season: int, side: str) -> dict[str, Any]:
+    """Return scheme-fit data for a team and side of the ball using the local database.
+
+    This is a placeholder for future scheme data. It provides a structured contract
+    so the agent calls the tool in a specific, explicit way before estimating matchup fit.
+    """
+    team = (team or "").strip()
+    if not team:
+        raise ValueError("team must not be empty")
+    side = (side or "").strip().lower()
+    if side not in {"offense", "defense"}:
+        raise ValueError("side must be 'offense' or 'defense'")
+
+    return {
+        "team": team,
+        "season": int(season),
+        "side": side,
+        "data_status": "placeholder",
+        "man_coverage_rate": None,
+        "zone_coverage_rate": None,
+        "blitz_rate": None,
+        "base_front": None,
+        "personnel_tendency": None,
+        "message": (
+            "Scheme-fit data is not yet populated in the database. "
+            "This tool exists to enforce the required data contract before any matchup analysis."
+        ),
+    }
+
+
 if __name__ == "__main__":
     import argparse
 
