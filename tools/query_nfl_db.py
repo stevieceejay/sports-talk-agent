@@ -1,4 +1,4 @@
-"""Read-only JSON query tool for nfl.db."""
+"""Read-only JSON query tools for nfl.db."""
 
 from __future__ import annotations
 
@@ -14,8 +14,8 @@ _OBJECT_REFERENCE = re.compile(r"\b(?:from|join)\s+([A-Za-z_][A-Za-z0-9_]*)", re
 _READ_ONLY_START = re.compile(r"^\s*(?:select|with|explain\s+query\s+plan)\b", re.IGNORECASE)
 
 
-def query_nfl_db(query: str) -> dict[str, Any]:
-    """Run one read-only query against the three approved NFL views."""
+def _safe_query(query: str) -> dict[str, Any]:
+    """Execute one approved read-only query and return JSON-safe rows."""
     if not isinstance(query, str) or not query.strip():
         raise ValueError("query must be a non-empty SQL string")
     if not _READ_ONLY_START.match(query):
@@ -38,6 +38,59 @@ def query_nfl_db(query: str) -> dict[str, Any]:
         columns = [item[0] for item in cursor.description or ()]
         rows = [dict(row) for row in cursor.fetchall()]
     return {"columns": columns, "rows": rows, "row_count": len(rows)}
+
+
+def query_nfl_db(query: str) -> dict[str, Any]:
+    """Run one read-only SQL query against the approved NFL views."""
+    return _safe_query(query)
+
+
+def get_team_season_rollup(team: str, season: int | None = None) -> dict[str, Any]:
+    """Fetch season-level team rollup data for a given team and optional season."""
+    team = (team or "").strip()
+    if not team:
+        raise ValueError("team must not be empty")
+
+    season_clause = "" if season is None else f"AND season = {int(season)}"
+    query = f"""
+        SELECT season, team, games, wins, losses, points_for, points_against, point_differential
+        FROM v_season_team
+        WHERE LOWER(team) = LOWER('{team.replace("'", "''")}')
+        {season_clause}
+        ORDER BY season DESC
+    """.strip()
+    return _safe_query(query)
+
+
+def get_team_recent_games(team: str, limit: int = 5) -> dict[str, Any]:
+    """Fetch recent game history for a team from the team_game view."""
+    team = (team or "").strip()
+    if not team:
+        raise ValueError("team must not be empty")
+    if limit <= 0:
+        raise ValueError("limit must be greater than zero")
+
+    query = f"""
+        SELECT game_id, season, week, game_date, team, opponent, venue,
+               points_for, points_against, result
+        FROM v_team_game
+        WHERE LOWER(team) = LOWER('{team.replace("'", "''")}')
+        ORDER BY season DESC, week DESC
+        LIMIT {int(limit)}
+    """.strip()
+    return _safe_query(query)
+
+
+def get_explosive_summary(season: int | None = None) -> dict[str, Any]:
+    """Fetch explosive-play summary data across teams for a season."""
+    season_clause = "" if season is None else f"WHERE season = {int(season)}"
+    query = f"""
+        SELECT season, team, explosive_plays, explosive_passes, explosive_runs, explosive_yards
+        FROM v_explosive_season
+        {season_clause}
+        ORDER BY explosive_plays DESC
+    """.strip()
+    return _safe_query(query)
 
 
 if __name__ == "__main__":
