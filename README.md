@@ -15,7 +15,10 @@ Python AI sports agent for matchup research, statistical analysis, and API-drive
 
 - `agent.py` – core sports agent logic, tool definitions, and OpenAI integration
 - `app.py` – app entry point for running the agent
-- `tools/sports_tools.py` – mock sports data tool that provides team metadata when live data is unavailable
+- `scripts/create_nfl_db.py` – creates the local SQLite database in the `db/` folder
+- `db/` – local NFL database and table definitions for season/team data
+- `tools/sports_tools.py` – mock sports data tool for team metadata while live sources are unavailable
+- `tools/query_nfl_db.py` – read-only SQL tool for querying approved NFL views
 - `.env` – optional local environment configuration for secrets
 
 ## Current implementation notes

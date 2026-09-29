@@ -71,6 +71,9 @@ If required information is unavailable, say so.
             tool_outputs = []
 
             for call in calls:
+                print(f"TOOL CALLED: {call.name}")
+                print(f"ARGUMENTS: {call.arguments}")
+
                 try:
                     arguments = json.loads(call.arguments)
                     result = self._execute_tool(call.name, arguments)
