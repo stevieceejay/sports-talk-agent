@@ -162,3 +162,49 @@ def test_explicit_historical_season_overrides_model_tool_argument(monkeypatch):
 
     assert agent.run("Who led in rushing yards in 2024?") == "Historical database answer."
     assert captured[0]["season"] == 2024
+
+
+def test_prediction_question_requires_local_model_and_defaults_to_2026(monkeypatch):
+    agent = SportAgent()
+    responses = FakeResponses([
+        _response("model", [_function_call("predict_scheduled_game", {
+            "team_a": "Cardinals", "team_b": "Rams", "season": 2025,
+        })]),
+        _response("answer", output_text="Arizona has a 58% home win probability."),
+    ])
+    agent.client.responses = responses
+    captured = []
+
+    def fake_prediction(**arguments):
+        captured.append(arguments)
+        return {"status": "ok", "home_win_probability": 0.58, "away_win_probability": 0.42}
+
+    monkeypatch.setattr("agent.predict_scheduled_game", fake_prediction)
+
+    answer = agent.run("What are the win probabilities for the next Cardinals-Rams game?")
+
+    first_tool_names = [tool["name"] for tool in responses.calls[0]["tools"]]
+    assert answer == "Arizona has a 58% home win probability."
+    assert first_tool_names == ["predict_scheduled_game"]
+    assert responses.calls[0]["tool_choice"] == "required"
+    assert responses.calls[1]["tools"] == []
+    assert captured[0]["season"] == 2026
+
+
+def test_prediction_model_error_does_not_fall_back_to_search(monkeypatch):
+    agent = SportAgent()
+    responses = FakeResponses([
+        _response("model", [_function_call("predict_scheduled_game", {
+            "team_a": "Cardinals", "team_b": "Rams", "season": 2026,
+        })]),
+        _response("answer", output_text="No scheduled matchup is available."),
+    ])
+    agent.client.responses = responses
+    monkeypatch.setattr(
+        "agent.predict_scheduled_game",
+        lambda **kwargs: (_ for _ in ()).throw(ValueError("No unplayed game is scheduled")),
+    )
+
+    assert agent.run("What is the win probability for the Cardinals-Rams game?") == "No scheduled matchup is available."
+    assert [tool["name"] for tool in responses.calls[0]["tools"]] == ["predict_scheduled_game"]
+    assert responses.calls[1]["tools"] == []

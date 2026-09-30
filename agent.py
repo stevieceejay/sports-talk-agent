@@ -26,6 +26,8 @@ from tools.query_nfl_db import (
 )
 from tools.search_tools import search_web
 from tools.sports_tools import get_team_info
+from tools.prediction_model import predict_scheduled_game
+from tools.prediction_model import predict_scheduled_game
 
 
 class SportAgent:
@@ -46,6 +48,7 @@ class SportAgent:
         "get_explosive_plays",
         "get_explosive_summary",
         "get_live_nfl_standings",
+        "predict_scheduled_game",
     }
 
     def __init__(self):
@@ -85,6 +88,8 @@ When a tool returns no rows or empty results, do not keep retrying the same tool
 Stop and explain that the requested data is unavailable in the current dataset or sources.
 Unless the user specifies another season or explicitly asks for all-time/all-seasons data, use the 2026 season. Never silently substitute an older season for a 2026 request.
 For a team-specific player leader question, filter the player leaderboard to that team; do not substitute a league-wide leader. For quarterbacks use position_group=quarterback and passing stats; for running backs use position_group=running_back and rushing stats; for receivers use position_group=receiver and receiving stats; for defensive leaders use position_group=defense and defensive sacks, interceptions, or forced_fumbles. Explain the stat total, games counted, team, and season using the database result.
+For matchup win probabilities, always use predict_scheduled_game. Report its home and away probabilities as model estimates, not guarantees; never invent a probability or substitute web search for a failed model prediction.
+For a game prediction, use predict_scheduled_game and report its home/away probabilities as model estimates, not guarantees. Do not invent a probability if no scheduled matchup or model data is available.
 """.strip()
 
         self.tools = [
@@ -200,6 +205,22 @@ For a team-specific player leader question, filter the player leaderboard to tha
                         "limit": {"type": "integer"},
                     },
                     "required": ["stat", "season", "limit"],
+                    "additionalProperties": False,
+                },
+                "strict": True,
+            },
+            {
+                "type": "function",
+                "name": "predict_scheduled_game",
+                "description": "Return reproducible home and away win probabilities for a scheduled matchup using the backtested historical model.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "team_a": {"type": "string"},
+                        "team_b": {"type": "string"},
+                        "season": {"type": "integer", "nullable": True},
+                    },
+                    "required": ["team_a", "team_b", "season"],
                     "additionalProperties": False,
                 },
                 "strict": True,
@@ -463,6 +484,10 @@ For a team-specific player leader question, filter the player leaderboard to tha
             return get_player_stat_leaders(**arguments)
         if name == "get_team_stat_leaders":
             return get_team_stat_leaders(**arguments)
+        if name == "predict_scheduled_game":
+            return predict_scheduled_game(**arguments)
+        if name == "predict_scheduled_game":
+            return predict_scheduled_game(**arguments)
         if name == "get_team_season_rollup":
             return get_team_season_rollup(**arguments)
         if name == "get_team_recent_games":
@@ -505,6 +530,13 @@ For a team-specific player leader question, filter the player leaderboard to tha
         lower = task.lower()
         return any(term in lower for term in terms)
 
+    def _is_prediction_question(self, task: str) -> bool:
+        lower = task.lower()
+        return any(term in lower for term in (
+            "predict", "prediction", "probability", "probabilities", "win chance", "win probability",
+            "odds of winning", "who will win", "who wins", "will win",
+        ))
+
     def _season_for_question(self, task: str) -> int | None:
         year = re.search(r"\b(?:19|20)\d{2}\b", task)
         if year:
@@ -519,6 +551,8 @@ For a team-specific player leader question, filter the player leaderboard to tha
         return self.DEFAULT_SEASON
 
     def _database_first_tools(self, task: str) -> list[dict]:
+        if self._is_prediction_question(task):
+            return [tool for tool in self.tools if tool["name"] == "predict_scheduled_game"]
         if not self._is_stat_question(task):
             return self.tools
         database_tools = {
@@ -561,6 +595,8 @@ For a team-specific player leader question, filter the player leaderboard to tha
                     "query_nfl_db",
                 ]
             ordered = [*stat_tools, *[name for name in ordered if name not in stat_tools]]
+        if self._is_prediction_question(task):
+            ordered = ["predict_scheduled_game", *[name for name in ordered if name != "predict_scheduled_game"]]
 
         return ", ".join(ordered)
 
@@ -569,7 +605,8 @@ For a team-specific player leader question, filter the player leaderboard to tha
             raise ValueError("task must be a non-empty string")
 
         task_text = task.strip()
-        database_first = self._is_stat_question(task_text)
+        prediction_question = self._is_prediction_question(task_text)
+        database_first = self._is_stat_question(task_text) or prediction_question
         requested_season = self._season_for_question(task_text)
         priority_hint = self._tool_priority_hint(task_text)
         response = self.client.responses.create(
@@ -629,6 +666,9 @@ For a team-specific player leader question, filter the player leaderboard to tha
                     "The requested NFL data is not available in the current database. "
                     "The tool returned no rows, so I stopped rather than guessing with repeated retries."
                 )
+
+            if database_first and database_empty and prediction_question:
+                return "A model probability is unavailable because the local database returned no prediction data."
 
             if database_first and database_empty and not search_fallback_active:
                 next_tools = [tool for tool in self.tools if tool["name"] == "search_web"]

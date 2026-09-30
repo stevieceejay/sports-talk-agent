@@ -705,10 +705,58 @@ def player_position_groups_from_csv(contents: str) -> dict[str, str]:
     }
 
 
+def ingest_season_range(
+    start_season: int,
+    end_season: int,
+    output_path: Path | str = OUTPUT,
+) -> tuple[int, int, int]:
+    """Import schedules and per-game stats for an inclusive season range."""
+    if start_season > end_season:
+        raise ValueError("start_season must not be after end_season")
+    request = Request(SCHEDULE_SOURCE, headers={"User-Agent": "sports-talk-agent schedule importer"})
+    with urlopen(request, timeout=30) as response:
+        schedule_csv = response.read().decode("utf-8-sig")
+    schedule_rows = [
+        row for row in schedule_records_from_csv(schedule_csv)
+        if start_season <= row["season"] <= end_season
+    ]
+    seasons_found = {row["season"] for row in schedule_rows}
+    expected_seasons = set(range(start_season, end_season + 1))
+    missing_seasons = sorted(expected_seasons - seasons_found)
+    if missing_seasons:
+        raise ValueError(f"Schedule source has no rows for seasons: {missing_seasons}")
+
+    schedule_count = seed_schedule_data(output_path=output_path, records=schedule_rows)
+    player_count = 0
+    team_count = 0
+    for season in range(start_season, end_season + 1):
+        season_players, season_teams = ingest_game_stats(season, output_path=output_path)
+        player_count += season_players
+        team_count += season_teams
+    return schedule_count, player_count, team_count
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Import NFL schedules and game statistics from nflverse.")
-    parser.add_argument("--season", type=int, help="Import this season's schedule and per-game player/team stats.")
+    season_options = parser.add_mutually_exclusive_group()
+    season_options.add_argument("--season", type=int, help="Import this season's schedule and per-game player/team stats.")
+    season_options.add_argument("--from-season", type=int, help="First season in an inclusive historical import range.")
+    parser.add_argument("--to-season", type=int, help="Final season in an inclusive historical import range.")
     args = parser.parse_args()
+    if args.from_season is not None:
+        if args.to_season is None:
+            parser.error("--from-season requires --to-season")
+        schedule_count, player_count, team_count = ingest_season_range(
+            args.from_season,
+            args.to_season,
+        )
+        print(
+            f"Imported {schedule_count // 2} games, {player_count} player-game rows, "
+            f"and {team_count} team-game stat rows for {args.from_season}-{args.to_season} into {OUTPUT}"
+        )
+        return
+    if args.to_season is not None:
+        parser.error("--to-season requires --from-season")
     count = ingest_schedule_data(season=args.season)
     if args.season is None:
         print(f"Imported {count // 2} games ({count} team schedule rows) into {OUTPUT}; pass --season to import game stats.")

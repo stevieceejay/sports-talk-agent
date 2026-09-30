@@ -16,7 +16,9 @@ Python AI sports agent for matchup research, statistical analysis, and API-drive
 - `agent.py` – core sports agent logic, tool definitions, and OpenAI integration
 - `app.py` – app entry point for running the agent
 - `scripts/create_nfl_db.py` – creates the local SQLite database in the `db/` folder
+- `scripts/backtest_win_model.py` – runs and exports the historical win-probability backtest
 - `db/` – local NFL database and table definitions for season/team data
+- `tools/prediction_model.py` – reproducible pregame win-probability model
 - `tools/sports_tools.py` – mock sports data tool for team metadata while live sources are unavailable
 - `tools/query_nfl_db.py` – read-only SQL tool for querying approved NFL views
 - `.env` – optional local environment configuration for secrets
@@ -46,6 +48,33 @@ Example questions include “Who leads the Cardinals in rushing yards this seaso
 and “Which defender has the most forced fumbles?”. These are covered by the
 database tools and tests; a separate question database is not required.
 
+## Historical model and backtest
+
+Import the five completed seasons used for model training:
+
+```powershell
+python -m scripts.create_nfl_db --from-season 2021 --to-season 2025
+```
+
+This replaces only 2021–2025 schedule and stat rows and preserves the 2026 season.
+The model is a scikit-learn logistic regression with pinned dependencies, fixed
+parameters, and five-game rolling team form. Backtesting is expanding by season:
+each test season is predicted using only earlier seasons, and same-week outcomes
+are excluded from pregame features.
+
+Run the backtest and export each held-out game's home/away probabilities:
+
+```powershell
+python -m scripts.backtest_win_model
+```
+
+The CSV report is written to `reports/win_probabilities_2022_2025.csv`. On the
+current 2021–2025 data, 1,084 held-out predictions achieved 61.3% accuracy and a
+0.231 Brier score, compared with 0.248 for the training-fold home-win-rate
+baseline. These are historical results, not a guarantee of future performance.
+The `/predict` API and agent prediction tool return probabilities for scheduled
+matchups, defaulting to 2026 and training on 2021–2025.
+
 ## Current implementation notes
 
 - The agent loads environment variables with `load_dotenv()`
@@ -60,7 +89,7 @@ database tools and tests; a separate question database is not required.
 2. Install dependencies:
 
 ```bash
-python -m pip install openai python-dotenv
+python -m pip install -r requirements.txt
 ```
 
 3. Set your OpenAI API key:
