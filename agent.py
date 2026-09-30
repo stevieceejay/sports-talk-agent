@@ -19,6 +19,7 @@ from tools.query_nfl_db import (
     get_team_season_rollup,
     query_nfl_db,
 )
+from tools.search_tools import search_web
 from tools.sports_tools import get_team_info
 
 
@@ -27,16 +28,33 @@ class SportAgent:
         load_dotenv()
         self.client = OpenAI()
         self.model = "gpt-5.6"
+        self.tool_priority = [
+            "query_nfl_db",
+            "get_team_schedule",
+            "get_team_game_log",
+            "get_team_recent_games",
+            "get_matchup_snapshot",
+            "get_team_rankings",
+            "get_team_season_rollup",
+            "get_live_nfl_standings",
+            "get_weather_for_city",
+            "get_team_news",
+            "search_web",
+        ]
         self.instructions = """
 You are a sports analysis agent.
 
+Use this tool selection order for every question:
+1. Prefer local database tools for structured facts such as team records, schedules, season summaries, rankings, recent games, and matchup history.
+2. If the question is about current or live context, use live tools for weather, standings, and team news.
+3. If the database and live tools do not have the answer, use a web search or external search tool as a last resort.
+4. If no reliable source provides the answer, say that the information is unavailable and do not guess.
+
 Analyze matchups using only information supplied by tools or the user.
-Consider recent performance, team statistics, injuries, matchup
-characteristics, and situational factors when that data is available.
+Consider recent performance, team statistics, injuries, matchup characteristics, and situational factors when that data is available.
 Clearly distinguish facts from opinions. Never invent data or sources.
-If required information is unavailable, say so.
 When a tool returns no rows or empty results, do not keep retrying the same tool with different guesses.
-Stop and explain that the requested data is unavailable in the current dataset.
+Stop and explain that the requested data is unavailable in the current dataset or sources.
 """.strip()
 
         self.tools = [
@@ -295,6 +313,27 @@ Stop and explain that the requested data is unavailable in the current dataset.
                 },
                 "strict": True,
             },
+            {
+                "type": "function",
+                "name": "search_web",
+                "description": "Use a public web search tool as a last resort when the database and live tools do not contain the needed answer.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "A targeted search query when local and live sports sources are insufficient.",
+                        },
+                        "max_results": {
+                            "type": "integer",
+                            "description": "Maximum number of search result entries to return.",
+                        },
+                    },
+                    "required": ["query"],
+                    "additionalProperties": False,
+                },
+                "strict": True,
+            },
         ]
 
     def _execute_tool(self, name, arguments):
@@ -330,16 +369,37 @@ Stop and explain that the requested data is unavailable in the current dataset.
             return get_team_news(**arguments)
         if name == "get_scheme_fit":
             return get_scheme_fit(**arguments)
+        if name == "search_web":
+            return search_web(**arguments)
         raise ValueError(f"Unknown tool requested: {name}")
+
+    def _tool_priority_hint(self, task: str) -> str:
+        lower = task.lower()
+        ordered = list(self.tool_priority)
+
+        if any(word in lower for word in ["weather", "rain", "snow", "temperature", "forecast", "wind"]):
+            ordered = ["get_weather_for_city", *[name for name in ordered if name != "get_weather_for_city"]]
+        if any(word in lower for word in ["standings", "rankings", "wins", "losses", "record", "league"]):
+            ordered = ["get_live_nfl_standings", "get_team_rankings", *[name for name in ordered if name not in {"get_live_nfl_standings", "get_team_rankings"}]]
+        if any(word in lower for word in ["schedule", "next week", "next weekend", "opponent", "play", "game", "matchup"]):
+            ordered = ["get_team_schedule", "get_team_game_log", "get_matchup_snapshot", *[name for name in ordered if name not in {"get_team_schedule", "get_team_game_log", "get_matchup_snapshot"}]]
+        if any(word in lower for word in ["news", "injury", "breaking", "headlines", "rumor"]):
+            ordered = ["get_team_news", *[name for name in ordered if name != "get_team_news"]]
+        if any(word in lower for word in ["search", "latest", "current", "recent", "unknown", "unavailable", "what happened"]):
+            ordered = [*ordered, "search_web"]
+
+        return ", ".join(ordered)
 
     def run(self, task):
         if not isinstance(task, str) or not task.strip():
             raise ValueError("task must be a non-empty string")
 
+        task_text = task.strip()
+        priority_hint = self._tool_priority_hint(task_text)
         response = self.client.responses.create(
             model=self.model,
-            instructions=self.instructions,
-            input=task.strip(),
+            instructions=f"{self.instructions}\n\nTool priority for this request: {priority_hint}\nPrefer these tools in order before resorting to search or abstaining.",
+            input=task_text,
             tools=self.tools,
         )
 
