@@ -21,6 +21,31 @@ Python AI sports agent for matchup research, statistical analysis, and API-drive
 - `tools/query_nfl_db.py` – read-only SQL tool for querying approved NFL views
 - `.env` – optional local environment configuration for secrets
 
+## NFL schedule data
+
+Schedules and completed game scores are imported from the public
+[nflverse games dataset](https://github.com/nflverse/nfldata/blob/master/data/games.csv).
+Per-game passing, rushing, receiving, sack, interception, and forced-fumble statistics,
+with QB/RB/WR/TE/defense position groups, come from
+[nflverse play-by-play](https://github.com/nflverse/nflverse-data/releases/tag/pbp),
+with canonical names from the [nflverse player catalog](https://github.com/nflverse/nflverse-data/releases/tag/players).
+Import or refresh one season, including its available game stats:
+
+```powershell
+python -m scripts.create_nfl_db --season 2026
+```
+
+The importer replaces only that season's schedule and game-stat rows and
+preserves other database tables. It stores upcoming scores as unknown. Omitting
+`--season` refreshes schedules for all seasons in the schedule feed but does not
+download play-by-play stats. Stat queries return an empty status when the local
+database has no matching rows; the agent must not invent statistics.
+
+Example questions include “Who leads the Cardinals in rushing yards this season?”,
+“Which quarterback has the most passing yards?”, “Who leads receivers in catches?”,
+and “Which defender has the most forced fumbles?”. These are covered by the
+database tools and tests; a separate question database is not required.
+
 ## Current implementation notes
 
 - The agent loads environment variables with `load_dotenv()`
@@ -59,11 +84,13 @@ python app.py
 - Corrected the tool schema so `description`, `parameters`, and `required` are valid JSON-like structures
 - Added validation to ensure the task input is a non-empty string
 - Added guardrails to prevent empty tool responses or infinite tool loops
-- Kept the tool output as mock data until a real sports-data source is connected
+- NFL schedules, completed scores, and available per-game player/team statistics
+	are loaded from nflverse; live weather, standings, and news use live tools.
 
 ## Notes
 
 - Keep API keys out of source control.
 - Use a local `.env` file or shell environment variables for configuration.
-- The current tool is intentionally mocked; live sports records, injuries, statistics, and schedules are unavailable until a real provider is connected.
+- Season summaries, injuries, and advanced statistics beyond the imported PBP
+	counting stats still require their own populated data sources.
 - This project is structured for iterative improvement and expansion as real data sources are added.
