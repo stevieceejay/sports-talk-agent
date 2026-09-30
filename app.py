@@ -1,8 +1,7 @@
-from agent import SportAgent
+from agent import ask_question
 
 
 def main():
-    agent = SportAgent()
     print("Ask the sports agent a question (type 'exit' to quit):")
 
     while True:
@@ -15,7 +14,7 @@ def main():
             break
 
         print("\nThinking...\n")
-        result = agent.run(question)
+        result = ask_question(question)
         print(result)
 
 

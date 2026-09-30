@@ -401,9 +401,13 @@ Stop and explain that the requested data is unavailable in the current dataset.
         raise RuntimeError("The agent exceeded the maximum number of tool rounds.")
 
 
-if __name__ == "__main__":
+def ask_question(question: str) -> str:
     agent = SportAgent()
+    return agent.run(question)
+
+
+if __name__ == "__main__":
     task = "Use get_team_season_rollup for the Eagles and tell me what the tool returned."
-    result = agent.run(task)
+    result = ask_question(task)
     print(result)
 

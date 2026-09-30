@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
 
-from agent import SportAgent
+from agent import ask_question
 
 app = FastAPI(title="Sports Talk Agent API")
 
@@ -10,19 +10,14 @@ class AskRequest(BaseModel):
     question: str
 
 
-def get_agent() -> SportAgent:
-    return SportAgent()
-
-
 @app.get("/health")
 def health_check():
     return {"status": "ok"}
 
 
 @app.post("/ask")
-def ask_question(payload: AskRequest):
-    agent = get_agent()
-    return {"answer": agent.run(payload.question)}
+def ask_question_route(payload: AskRequest):
+    return {"answer": ask_question(payload.question)}
 
 
 if __name__ == "__main__":

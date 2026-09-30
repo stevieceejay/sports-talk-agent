@@ -12,7 +12,7 @@ def test_health_check():
 
 
 def test_ask_returns_answer(monkeypatch):
-    monkeypatch.setattr(main, "SportAgent", lambda: type("Agent", (), {"run": lambda self, q: "Mock answer for: " + q})())
+    monkeypatch.setattr(main, "ask_question", lambda q: "Mock answer for: " + q)
 
     response = client.post("/ask", json={"question": "Who will win?"})
 
