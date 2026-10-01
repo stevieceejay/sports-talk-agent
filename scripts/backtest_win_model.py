@@ -18,11 +18,17 @@ REPORT_FIELDS = (
     "game_date",
     "home_team",
     "away_team",
+    "raw_home_win_probability",
+    "raw_away_win_probability",
     "home_win_probability",
     "away_win_probability",
+    "calibrated_home_win_probability",
+    "calibrated_away_win_probability",
     "actual_home_win",
     "baseline_home_win_probability",
     "training_through_season",
+    "calibration_method",
+    "calibration_training_games",
 )
 
 
@@ -41,18 +47,31 @@ def main() -> None:
         writer.writerows(result["predictions"])
 
     metrics = result["metrics"]
+    calibration_candidate = metrics["calibrated_candidate"]
     print(f"Model: {result['model']}")
     print(f"Backtested games: {result['games_backtested']}")
     print(
-        f"Accuracy: {metrics['accuracy']:.3f} | Brier: {metrics['brier_score']:.3f} "
-        f"(home-rate baseline {metrics['baseline_brier_score']:.3f}) | "
-        f"Log loss: {metrics['log_loss']:.3f}"
+        f"Selected raw accuracy: {metrics['accuracy']:.3f} | "
+        f"Brier: raw {metrics['brier_score']:.3f}, Platt candidate {calibration_candidate['brier_score']:.3f}, "
+        f"baseline {metrics['baseline_brier_score']:.3f} | "
+        f"Log loss: raw {metrics['log_loss']:.3f}, Platt candidate {calibration_candidate['log_loss']:.3f} | "
+        f"ECE: raw {metrics['expected_calibration_error']:.3f}, "
+        f"Platt candidate {calibration_candidate['expected_calibration_error']:.3f}"
     )
     for fold in result["folds"]:
         print(
-            f"{fold['test_season']}: n={fold['games']} accuracy={fold['accuracy']:.3f} "
-            f"Brier={fold['brier_score']:.3f} baseline={fold['baseline_brier_score']:.3f}"
+            f"{fold['test_season']}: n={fold['games']} calibration={fold['calibration_method']} "
+            f"accuracy={fold['accuracy']:.3f} Brier raw/candidate={fold['brier_score']:.3f}/"
+            f"{fold['calibrated_brier_score']:.3f} ECE raw/candidate="
+            f"{fold['expected_calibration_error']:.3f}/{fold['calibrated_ece']:.3f}"
         )
+    if metrics["calibrated_folds_only"]:
+        calibrated = metrics["calibrated_folds_only"]
+        print(
+            f"Platt-candidate folds only: n={calibrated['games']} "
+            f"Brier={calibrated['brier_score']:.3f} ECE={calibrated['expected_calibration_error']:.3f}"
+        )
+    print(f"Calibration applied to selected predictions: {metrics['calibration_applied']}")
     print(f"Per-game probabilities: {args.output}")
 
 

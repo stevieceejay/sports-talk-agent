@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 import sqlite3
 from itertools import groupby
+from math import log
 from pathlib import Path
 from statistics import mean
 from typing import Any
@@ -23,6 +24,12 @@ ROLLING_WINDOW = 5
 MODEL_NAME = "standard-scaled-logistic-regression"
 MODEL_PARAMETERS = {
     "C": 0.2,
+    "max_iter": 1000,
+    "random_state": 42,
+    "solver": "lbfgs",
+}
+CALIBRATION_PARAMETERS = {
+    "C": 1.0,
     "max_iter": 1000,
     "random_state": 42,
     "solver": "lbfgs",
@@ -175,9 +182,58 @@ def _probability_metrics(
         "accuracy": float(accuracy_score(actual, [int(value >= 0.5) for value in clipped])),
         "brier_score": float(brier_score_loss(actual, clipped)),
         "log_loss": float(log_loss(actual, clipped, labels=[0, 1])),
+        "expected_calibration_error": _expected_calibration_error(actual, clipped),
         "baseline_brier_score": float(brier_score_loss(actual, baseline_predictions)),
         "baseline_home_win_probability": float(mean(baseline_predictions)),
     }
+
+
+def _logit(probability: float) -> float:
+    bounded = min(max(probability, 1e-8), 1.0 - 1e-8)
+    return log(bounded / (1.0 - bounded))
+
+
+def _fit_platt_calibrator(
+    raw_probabilities: list[float],
+    actual: list[int],
+) -> LogisticRegression | None:
+    """Fit Platt scaling only when prior out-of-fold examples contain both classes."""
+    if len(raw_probabilities) != len(actual) or len(set(actual)) < 2:
+        return None
+    calibrator = LogisticRegression(**CALIBRATION_PARAMETERS)
+    calibrator.fit([[_logit(value)] for value in raw_probabilities], actual)
+    return calibrator
+
+
+def _apply_platt_calibration(
+    calibrator: LogisticRegression | None,
+    raw_probability: float,
+) -> float:
+    if calibrator is None:
+        return raw_probability
+    return float(calibrator.predict_proba([[_logit(raw_probability)]])[0, 1])
+
+
+def _expected_calibration_error(
+    actual: list[int],
+    probabilities: list[float],
+    bin_count: int = 10,
+) -> float:
+    if not actual:
+        return 0.0
+    bin_error = 0.0
+    for bin_index in range(bin_count):
+        lower = bin_index / bin_count
+        upper = (bin_index + 1) / bin_count
+        members = [
+            index for index, probability in enumerate(probabilities)
+            if lower <= probability < upper or (bin_index == bin_count - 1 and probability == 1.0)
+        ]
+        if members:
+            mean_probability = mean(probabilities[index] for index in members)
+            observed_rate = mean(actual[index] for index in members)
+            bin_error += len(members) / len(actual) * abs(mean_probability - observed_rate)
+    return float(bin_error)
 
 
 def walk_forward_backtest(
@@ -185,7 +241,7 @@ def walk_forward_backtest(
     end_season: int = DEFAULT_TRAIN_END_SEASON,
     db_path: Path | str = DB_PATH,
 ) -> dict[str, Any]:
-    """Train on prior seasons and predict each later season using pregame-only features."""
+    """Compare raw probabilities with Platt candidates calibrated on prior OOF seasons."""
     if end_season <= start_season:
         raise ValueError("Backtest requires at least two seasons")
     games = _read_games(start_season, end_season, db_path=db_path)
@@ -193,6 +249,8 @@ def walk_forward_backtest(
     seasons = sorted({row["season"] for row in feature_rows})
     fold_results = []
     all_predictions = []
+    prior_oof_probabilities: list[float] = []
+    prior_oof_actual: list[int] = []
 
     for test_season in seasons:
         if test_season <= start_season:
@@ -203,11 +261,35 @@ def walk_forward_backtest(
             continue
         model = _new_model()
         model.fit([row["features"] for row in training], [row["home_win"] for row in training])
-        probabilities = model.predict_proba([row["features"] for row in testing])[:, 1].tolist()
+        raw_probabilities = model.predict_proba([row["features"] for row in testing])[:, 1].tolist()
         actual = [row["home_win"] for row in testing]
         baseline = mean(row["home_win"] for row in training)
-        metrics = _probability_metrics(actual, probabilities, baseline)
-        fold_results.append({"test_season": test_season, "games": len(testing), **metrics})
+        calibrator = _fit_platt_calibrator(prior_oof_probabilities, prior_oof_actual)
+        calibration_method = "platt" if calibrator is not None else "uncalibrated_insufficient_prior_oof"
+        calibrated_probabilities = [
+            _apply_platt_calibration(calibrator, probability)
+            for probability in raw_probabilities
+        ]
+        raw_metrics = _probability_metrics(actual, raw_probabilities, baseline)
+        calibrated_metrics = _probability_metrics(actual, calibrated_probabilities, baseline)
+        fold_results.append({
+            "test_season": test_season,
+            "games": len(testing),
+            "calibration_method": calibration_method,
+            "calibration_training_games": len(prior_oof_actual),
+            "accuracy": raw_metrics["accuracy"],
+            "raw_brier_score": raw_metrics["brier_score"],
+            "calibrated_brier_score": calibrated_metrics["brier_score"],
+            "brier_score": raw_metrics["brier_score"],
+            "raw_log_loss": raw_metrics["log_loss"],
+            "calibrated_log_loss": calibrated_metrics["log_loss"],
+            "log_loss": raw_metrics["log_loss"],
+            "raw_ece": raw_metrics["expected_calibration_error"],
+            "calibrated_ece": calibrated_metrics["expected_calibration_error"],
+            "expected_calibration_error": raw_metrics["expected_calibration_error"],
+            "baseline_brier_score": raw_metrics["baseline_brier_score"],
+            "baseline_home_win_probability": baseline,
+        })
         all_predictions.extend({
             "game_id": row["game_id"],
             "season": row["season"],
@@ -215,12 +297,22 @@ def walk_forward_backtest(
             "game_date": row["game_date"],
             "home_team": row["home_team"],
             "away_team": row["away_team"],
-            "home_win_probability": float(probability),
-            "away_win_probability": float(1.0 - probability),
+            "raw_home_win_probability": float(raw_probability),
+            "raw_away_win_probability": float(1.0 - raw_probability),
+            "home_win_probability": float(raw_probability),
+            "away_win_probability": float(1.0 - raw_probability),
+            "calibrated_home_win_probability": float(calibrated_probability),
+            "calibrated_away_win_probability": float(1.0 - calibrated_probability),
             "actual_home_win": row["home_win"],
             "baseline_home_win_probability": float(baseline),
             "training_through_season": test_season - 1,
-        } for row, probability in zip(testing, probabilities))
+            "calibration_method": calibration_method,
+            "calibration_training_games": len(prior_oof_actual),
+        } for row, raw_probability, calibrated_probability in zip(
+            testing, raw_probabilities, calibrated_probabilities
+        ))
+        prior_oof_probabilities.extend(raw_probabilities)
+        prior_oof_actual.extend(actual)
 
     if not all_predictions:
         raise ValueError(
@@ -228,9 +320,22 @@ def walk_forward_backtest(
             "import at least two seasons with completed game scores."
         )
     actual_all = [row["actual_home_win"] for row in all_predictions]
-    probabilities_all = [row["home_win_probability"] for row in all_predictions]
+    raw_probabilities_all = [row["raw_home_win_probability"] for row in all_predictions]
+    calibrated_probabilities_all = [row["calibrated_home_win_probability"] for row in all_predictions]
     overall_baseline = [row["baseline_home_win_probability"] for row in all_predictions]
-    overall = _probability_metrics(actual_all, probabilities_all, overall_baseline)
+    raw_overall = _probability_metrics(actual_all, raw_probabilities_all, overall_baseline)
+    calibrated_overall = _probability_metrics(actual_all, calibrated_probabilities_all, overall_baseline)
+    calibrated_predictions = [
+        row for row in all_predictions if row["calibration_method"] == "platt"
+    ]
+    calibrated_only = None
+    if calibrated_predictions:
+        calibrated_only = _probability_metrics(
+            [row["actual_home_win"] for row in calibrated_predictions],
+            [row["calibrated_home_win_probability"] for row in calibrated_predictions],
+            [row["baseline_home_win_probability"] for row in calibrated_predictions],
+        )
+        calibrated_only["games"] = len(calibrated_predictions)
     return {
         "model": MODEL_NAME,
         "model_parameters": MODEL_PARAMETERS.copy(),
@@ -238,7 +343,14 @@ def walk_forward_backtest(
         "training_seasons": [start_season, end_season],
         "test_seasons": [row["test_season"] for row in fold_results],
         "games_backtested": len(all_predictions),
-        "metrics": overall,
+        "metrics": {
+            **raw_overall,
+            "selected_probability": "raw_model",
+            "calibration_applied": False,
+            "calibration_method": "platt_candidate",
+            "calibrated_candidate": calibrated_overall,
+            "calibrated_folds_only": calibrated_only,
+        },
         "folds": fold_results,
         "predictions": all_predictions,
     }
@@ -289,6 +401,25 @@ def predict_scheduled_game(
     training_rows = build_feature_rows(training_games)
     if len({row["home_win"] for row in training_rows}) < 2:
         raise ValueError("Historical data does not contain both home wins and away wins")
+
+    calibration_probabilities: list[float] = []
+    calibration_actual: list[int] = []
+    for test_season in sorted({row["season"] for row in training_rows}):
+        earlier_rows = [row for row in training_rows if row["season"] < test_season]
+        held_out_rows = [row for row in training_rows if row["season"] == test_season]
+        if not earlier_rows or not held_out_rows or len({row["home_win"] for row in earlier_rows}) < 2:
+            continue
+        fold_model = _new_model()
+        fold_model.fit(
+            [row["features"] for row in earlier_rows],
+            [row["home_win"] for row in earlier_rows],
+        )
+        calibration_probabilities.extend(
+            fold_model.predict_proba([row["features"] for row in held_out_rows])[:, 1].tolist()
+        )
+        calibration_actual.extend(row["home_win"] for row in held_out_rows)
+    calibrator = _fit_platt_calibrator(calibration_probabilities, calibration_actual)
+
     model = _new_model()
     model.fit([row["features"] for row in training_rows], [row["home_win"] for row in training_rows])
 
@@ -313,18 +444,29 @@ def predict_scheduled_game(
     target_features = _features(
         target["home_team"], target["away_team"], int(target["week"]), histories
     )
-    home_probability = float(model.predict_proba([target_features])[0, 1])
+    raw_home_probability = float(model.predict_proba([target_features])[0, 1])
+    calibrated_home_probability = _apply_platt_calibration(calibrator, raw_home_probability)
     return {
         "status": "ok",
         "model": MODEL_NAME,
         "training_seasons": [start_season, train_through_season],
         "training_games": len(training_rows),
+        "calibration_method": "platt" if calibrator is not None else "uncalibrated_insufficient_oof",
+        "calibration_training_games": len(calibration_actual),
+        "calibration_applied": False,
         "season": season,
         "week": int(target["week"]),
         "game_date": target["game_date"],
         "home_team": target["home_team"],
         "away_team": target["away_team"],
-        "home_win_probability": home_probability,
-        "away_win_probability": 1.0 - home_probability,
-        "note": "Model probabilities are estimates, not guarantees; features use results available before this game week.",
+        "raw_home_win_probability": raw_home_probability,
+        "raw_away_win_probability": 1.0 - raw_home_probability,
+        "home_win_probability": raw_home_probability,
+        "away_win_probability": 1.0 - raw_home_probability,
+        "calibrated_home_win_probability_candidate": calibrated_home_probability,
+        "calibrated_away_win_probability_candidate": 1.0 - calibrated_home_probability,
+        "note": (
+            "Selected probabilities are raw logistic-model estimates; Platt calibration is shown as a candidate "
+            "but not applied because it did not improve walk-forward scores. Probabilities are estimates, not guarantees."
+        ),
     }

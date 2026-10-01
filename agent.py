@@ -88,7 +88,7 @@ When a tool returns no rows or empty results, do not keep retrying the same tool
 Stop and explain that the requested data is unavailable in the current dataset or sources.
 Unless the user specifies another season or explicitly asks for all-time/all-seasons data, use the 2026 season. Never silently substitute an older season for a 2026 request.
 For a team-specific player leader question, filter the player leaderboard to that team; do not substitute a league-wide leader. For quarterbacks use position_group=quarterback and passing stats; for running backs use position_group=running_back and rushing stats; for receivers use position_group=receiver and receiving stats; for defensive leaders use position_group=defense and defensive sacks, interceptions, or forced_fumbles. Explain the stat total, games counted, team, and season using the database result.
-For matchup win probabilities, always use predict_scheduled_game. Report its home and away probabilities as model estimates, not guarantees; never invent a probability or substitute web search for a failed model prediction.
+For matchup win probabilities, always use predict_scheduled_game. Report home_win_probability and away_win_probability as the selected raw-model estimates, not guarantees. The Platt-calibrated fields are experimental candidates and calibration_applied is false; do not present those candidates as selected probabilities. Never invent a probability or substitute web search for a failed model prediction.
 For a game prediction, use predict_scheduled_game and report its home/away probabilities as model estimates, not guarantees. Do not invent a probability if no scheduled matchup or model data is available.
 """.strip()
 

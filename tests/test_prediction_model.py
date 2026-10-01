@@ -95,6 +95,13 @@ def test_walk_forward_backtest_is_deterministic_and_returns_probabilities(tmp_pa
     assert first["metrics"] == second["metrics"]
     assert all(0 <= row["home_win_probability"] <= 1 for row in first["predictions"])
     assert first["metrics"]["brier_score"] >= 0
+    assert first["folds"][0]["calibration_method"] == "uncalibrated_insufficient_prior_oof"
+    assert first["folds"][0]["calibration_training_games"] == 0
+    assert first["folds"][1]["calibration_method"] == "platt"
+    assert first["folds"][1]["calibration_training_games"] == 8
+    assert first["metrics"]["selected_probability"] == "raw_model"
+    assert first["metrics"]["calibration_applied"] is False
+    assert "calibrated_folds_only" in first["metrics"]
 
 
 def test_prediction_uses_historical_games_for_scheduled_matchup(tmp_path):
@@ -107,4 +114,10 @@ def test_prediction_uses_historical_games_for_scheduled_matchup(tmp_path):
     assert prediction["training_seasons"] == [2021, 2025]
     assert prediction["home_team"] == "Alpha"
     assert 0 <= prediction["home_win_probability"] <= 1
+    assert 0 <= prediction["raw_home_win_probability"] <= 1
+    assert prediction["home_win_probability"] == prediction["raw_home_win_probability"]
+    assert 0 <= prediction["calibrated_home_win_probability_candidate"] <= 1
+    assert prediction["calibration_applied"] is False
+    assert prediction["calibration_method"] == "platt"
+    assert prediction["calibration_training_games"] > 0
     assert abs(prediction["home_win_probability"] + prediction["away_win_probability"] - 1) < 1e-12
