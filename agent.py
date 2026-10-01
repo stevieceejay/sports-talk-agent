@@ -135,7 +135,7 @@ For a game prediction, use predict_scheduled_game and report its home/away proba
                     "type": "object",
                     "properties": {
                         "player": {"type": "string"},
-                        "season": {"type": "integer", "nullable": True},
+                        "season": {"type": ["integer", "null"]},
                         "limit": {"type": "integer"},
                     },
                     "required": ["player", "season", "limit"],
@@ -151,7 +151,7 @@ For a game prediction, use predict_scheduled_game and report its home/away proba
                     "type": "object",
                     "properties": {
                         "team": {"type": "string"},
-                        "season": {"type": "integer", "nullable": True},
+                        "season": {"type": ["integer", "null"]},
                         "limit": {"type": "integer"},
                     },
                     "required": ["team", "season", "limit"],
@@ -172,7 +172,7 @@ For a game prediction, use predict_scheduled_game and report its home/away proba
                             "rushing_tds", "targets", "receptions", "receiving_yards", "receiving_tds",
                             "defensive_sacks", "defensive_interceptions", "forced_fumbles",
                         ]},
-                        "season": {"type": "integer", "nullable": True},
+                        "season": {"type": ["integer", "null"]},
                         "limit": {"type": "integer"},
                         "team": {
                             "type": "string",
@@ -201,7 +201,7 @@ For a game prediction, use predict_scheduled_game and report its home/away proba
                             "rushing_tds", "targets", "receptions", "receiving_yards", "receiving_tds",
                             "defensive_sacks", "defensive_interceptions", "forced_fumbles",
                         ]},
-                        "season": {"type": "integer", "nullable": True},
+                        "season": {"type": ["integer", "null"]},
                         "limit": {"type": "integer"},
                     },
                     "required": ["stat", "season", "limit"],
@@ -218,7 +218,7 @@ For a game prediction, use predict_scheduled_game and report its home/away proba
                     "properties": {
                         "team_a": {"type": "string"},
                         "team_b": {"type": "string"},
-                        "season": {"type": "integer", "nullable": True},
+                        "season": {"type": ["integer", "null"]},
                     },
                     "required": ["team_a", "team_b", "season"],
                     "additionalProperties": False,
@@ -233,7 +233,7 @@ For a game prediction, use predict_scheduled_game and report its home/away proba
                     "type": "object",
                     "properties": {
                         "team": {"type": "string"},
-                        "season": {"type": "integer", "nullable": True},
+                        "season": {"type": ["integer", "null"]},
                     },
                     "required": ["team", "season"],
                     "additionalProperties": False,
@@ -249,7 +249,7 @@ For a game prediction, use predict_scheduled_game and report its home/away proba
                     "properties": {
                         "team": {"type": "string"},
                         "limit": {"type": "integer"},
-                        "season": {"type": "integer", "nullable": True},
+                        "season": {"type": ["integer", "null"]},
                     },
                     "required": ["team", "limit", "season"],
                     "additionalProperties": False,
@@ -263,7 +263,7 @@ For a game prediction, use predict_scheduled_game and report its home/away proba
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "season": {"type": "integer", "nullable": True},
+                        "season": {"type": ["integer", "null"]},
                     },
                     "required": ["season"],
                     "additionalProperties": False,
@@ -277,7 +277,7 @@ For a game prediction, use predict_scheduled_game and report its home/away proba
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "season": {"type": "integer", "nullable": True},
+                        "season": {"type": ["integer", "null"]},
                     },
                     "required": ["season"],
                     "additionalProperties": False,
@@ -293,7 +293,7 @@ For a game prediction, use predict_scheduled_game and report its home/away proba
                     "properties": {
                         "team": {"type": "string"},
                         "limit": {"type": "integer"},
-                        "season": {"type": "integer", "nullable": True},
+                        "season": {"type": ["integer", "null"]},
                     },
                     "required": ["team", "limit", "season"],
                     "additionalProperties": False,
@@ -307,7 +307,7 @@ For a game prediction, use predict_scheduled_game and report its home/away proba
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "season": {"type": "integer", "nullable": True},
+                        "season": {"type": ["integer", "null"]},
                         "limit": {"type": "integer"},
                     },
                     "required": ["season", "limit"],
@@ -324,7 +324,7 @@ For a game prediction, use predict_scheduled_game and report its home/away proba
                     "properties": {
                         "team_a": {"type": "string"},
                         "team_b": {"type": "string"},
-                        "season": {"type": "integer", "nullable": True},
+                        "season": {"type": ["integer", "null"]},
                     },
                     "required": ["team_a", "team_b", "season"],
                     "additionalProperties": False,
@@ -340,7 +340,7 @@ For a game prediction, use predict_scheduled_game and report its home/away proba
                     "properties": {
                         "team": {"type": "string"},
                         "opponent": {"type": "string"},
-                        "season": {"type": "integer", "nullable": True},
+                        "season": {"type": ["integer", "null"]},
                     },
                     "required": ["team", "opponent", "season"],
                     "additionalProperties": False,
@@ -355,7 +355,7 @@ For a game prediction, use predict_scheduled_game and report its home/away proba
                     "type": "object",
                     "properties": {
                         "team": {"type": "string"},
-                        "season": {"type": "integer", "nullable": True},
+                        "season": {"type": ["integer", "null"]},
                         "limit": {"type": "integer"},
                     },
                     "required": ["team", "season", "limit"],
@@ -371,7 +371,7 @@ For a game prediction, use predict_scheduled_game and report its home/away proba
                     "type": "object",
                     "properties": {
                         "team": {"type": "string"},
-                        "season": {"type": "integer", "nullable": True},
+                        "season": {"type": ["integer", "null"]},
                     },
                     "required": ["team", "season"],
                     "additionalProperties": False,
@@ -400,7 +400,7 @@ For a game prediction, use predict_scheduled_game and report its home/away proba
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "season": {"type": "integer", "nullable": True},
+                        "season": {"type": ["integer", "null"]},
                     },
                     "required": ["season"],
                     "additionalProperties": False,
