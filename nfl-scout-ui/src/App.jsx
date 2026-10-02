@@ -1,4 +1,6 @@
 import { useState } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { askAgent } from './services/api'
 import './App.css'
 
@@ -61,13 +63,22 @@ function App() {
           )}
 
           {messages.map((message) => (
-            <article className={`message ${message.role}`} key={message.id}>
-              <span className="message-label">
-                {message.role === 'user' ? 'You' : 'Scout agent'}
-              </span>
-              <p>{message.text}</p>
-            </article>
-          ))}
+  <article className={`message ${message.role}`} key={message.id}>
+    <span className="message-label">
+      {message.role === 'user' ? 'You' : 'Scout agent'}
+    </span>
+
+    {message.role === 'assistant' ? (
+      <div className="markdown-content">
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+          {message.text}
+        </ReactMarkdown>
+      </div>
+    ) : (
+      <p>{message.text}</p>
+    )}
+  </article>
+))}
 
           {isLoading && (
             <div className="loading" role="status">
