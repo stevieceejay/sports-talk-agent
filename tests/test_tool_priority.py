@@ -17,6 +17,22 @@ def test_search_tool_is_registered():
     assert "search_web" in names
 
 
+def test_live_spread_tool_is_registered_and_forced_for_spread_questions():
+    agent = SportAgent()
+    names = [tool["name"] for tool in agent.tools]
+
+    assert "get_live_nfl_spread" in names
+    assert [
+        tool["name"]
+        for tool in agent._database_first_tools(
+            "What is the current point spread for the Seahawks and 49ers?"
+        )
+    ] == ["get_live_nfl_spread"]
+    assert agent._tool_priority_hint(
+        "What is the current point spread for the Seahawks and 49ers?"
+    ).startswith("get_live_nfl_spread")
+
+
 def test_stats_questions_force_database_tools_before_search():
     agent = SportAgent()
     names = [tool["name"] for tool in agent._database_first_tools("Who leads in rushing yards?")]

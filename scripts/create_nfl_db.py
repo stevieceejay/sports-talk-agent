@@ -160,6 +160,22 @@ CREATE TABLE IF NOT EXISTS injuries (
     is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1))
 );
 
+CREATE TABLE IF NOT EXISTS nfl_spread (
+    event_id TEXT NOT NULL,
+    commence_time TEXT NOT NULL,
+    home_team TEXT NOT NULL,
+    away_team TEXT NOT NULL,
+    bookmaker_key TEXT NOT NULL,
+    bookmaker TEXT NOT NULL,
+    outcome_team TEXT NOT NULL,
+    spread_point REAL NOT NULL,
+    price REAL,
+    market_last_update TEXT,
+    fetched_at TEXT NOT NULL,
+    source_url TEXT NOT NULL,
+    PRIMARY KEY (event_id, bookmaker_key, outcome_team)
+);
+
 CREATE VIEW IF NOT EXISTS v_season_team AS
 SELECT season, team, games, wins, losses, points_for, points_against,
        points_for - points_against AS point_differential
@@ -185,6 +201,12 @@ CREATE VIEW IF NOT EXISTS v_injuries AS
 SELECT injury_id, season, team, player_name, position, status, injury,
        practice_status, report_date, is_active
 FROM injuries;
+
+CREATE VIEW IF NOT EXISTS v_nfl_spread AS
+SELECT event_id, commence_time, home_team, away_team, bookmaker_key,
+       bookmaker, outcome_team, spread_point, price, market_last_update,
+       fetched_at, source_url
+FROM nfl_spread;
 """
 
 

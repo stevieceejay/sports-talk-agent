@@ -5,7 +5,12 @@ import re
 from dotenv import load_dotenv
 from openai import OpenAI
 
-from tools.live_tools import get_live_nfl_standings, get_team_news, get_weather_for_city
+from tools.live_tools import (
+    get_live_nfl_spread,
+    get_live_nfl_standings,
+    get_team_news,
+    get_weather_for_city,
+)
 from tools.query_nfl_db import (
     get_explosive_plays,
     get_explosive_summary,
@@ -68,6 +73,7 @@ class SportAgent:
             "get_team_rankings",
             "get_team_season_rollup",
             "get_live_nfl_standings",
+            "get_live_nfl_spread",
             "get_weather_for_city",
             "get_team_news",
             "search_web",
@@ -77,7 +83,7 @@ You are a sports analysis agent.
 
 Use this tool selection order for every question:
 1. Prefer local database tools for structured facts such as team records, schedules, season summaries, rankings, recent games, matchup history, and per-game player/team statistics. For statistical questions, query the local database before any web search; search is permitted only when database results are empty.
-2. If the question is about current or live context, use live tools for weather, standings, and team news.
+2. If the question is about current or live context, use live tools for weather, standings, team news, and NFL point spreads.
 3. If the database and live tools do not have the answer, use a web search or external search tool as a last resort.
 4. If no reliable source provides the answer, say that the information is unavailable and do not guess.
 
@@ -90,6 +96,7 @@ Unless the user specifies another season or explicitly asks for all-time/all-sea
 For a team-specific player leader question, filter the player leaderboard to that team; do not substitute a league-wide leader. For quarterbacks use position_group=quarterback and passing stats; for running backs use position_group=running_back and rushing stats; for receivers use position_group=receiver and receiving stats; for defensive leaders use position_group=defense and defensive sacks, interceptions, or forced_fumbles. Explain the stat total, games counted, team, and season using the database result.
 For matchup win probabilities, always use predict_scheduled_game. Report home_win_probability and away_win_probability as the selected raw-model estimates, not guarantees. The Platt-calibrated fields are experimental candidates and calibration_applied is false; do not present those candidates as selected probabilities. Never invent a probability or substitute web search for a failed model prediction.
 For a game prediction, use predict_scheduled_game and report its home/away probabilities as model estimates, not guarantees. Do not invent a probability if no scheduled matchup or model data is available.
+For a current NFL point spread, always use get_live_nfl_spread. Report the provider, bookmaker count, consensus spread, and fetched_at timestamp. A point spread is betting-market data, not the prediction model's win probability. If the live spread source is unavailable, say so and do not substitute a guessed line or generic web-search snippet.
 """.strip()
 
         self.tools = [
@@ -424,6 +431,27 @@ For a game prediction, use predict_scheduled_game and report its home/away proba
             },
             {
                 "type": "function",
+                "name": "get_live_nfl_spread",
+                "description": "Fetch current NFL point spreads for a matchup from a structured live odds provider and save the returned bookmaker lines to the local database.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "team_a": {
+                            "type": "string",
+                            "description": "Full or common name of the first NFL team.",
+                        },
+                        "team_b": {
+                            "type": "string",
+                            "description": "Full or common name of the second NFL team.",
+                        },
+                    },
+                    "required": ["team_a", "team_b"],
+                    "additionalProperties": False,
+                },
+                "strict": True,
+            },
+            {
+                "type": "function",
                 "name": "get_scheme_fit",
                 "description": "Fetch scheme-vs-scheme data for one NFL team: man coverage rate, zone coverage rate, blitz rate, base front, and personnel-grouping tendency.",
                 "parameters": {
@@ -514,6 +542,8 @@ For a game prediction, use predict_scheduled_game and report its home/away proba
             return get_live_nfl_standings(**arguments)
         if name == "get_team_news":
             return get_team_news(**arguments)
+        if name == "get_live_nfl_spread":
+            return get_live_nfl_spread(**arguments)
         if name == "get_scheme_fit":
             return get_scheme_fit(**arguments)
         if name == "search_web":
@@ -537,6 +567,13 @@ For a game prediction, use predict_scheduled_game and report its home/away proba
             "odds of winning", "who will win", "who wins", "will win",
         ))
 
+    def _is_spread_question(self, task: str) -> bool:
+        lower = task.lower()
+        return any(term in lower for term in (
+            "point spread", "betting spread", "current spread", "live spread",
+            "latest spread", "cover the spread", "favorite by", "underdog by",
+        ))
+
     def _season_for_question(self, task: str) -> int | None:
         year = re.search(r"\b(?:19|20)\d{2}\b", task)
         if year:
@@ -551,6 +588,8 @@ For a game prediction, use predict_scheduled_game and report its home/away proba
         return self.DEFAULT_SEASON
 
     def _database_first_tools(self, task: str) -> list[dict]:
+        if self._is_spread_question(task):
+            return [tool for tool in self.tools if tool["name"] == "get_live_nfl_spread"]
         if self._is_prediction_question(task):
             return [tool for tool in self.tools if tool["name"] == "predict_scheduled_game"]
         if not self._is_stat_question(task):
@@ -575,6 +614,8 @@ For a game prediction, use predict_scheduled_game and report its home/away proba
             ordered = ["get_team_schedule", "get_team_game_log", "get_matchup_snapshot", *[name for name in ordered if name not in {"get_team_schedule", "get_team_game_log", "get_matchup_snapshot"}]]
         if any(word in lower for word in ["news", "injury", "breaking", "headlines", "rumor"]):
             ordered = ["get_team_news", *[name for name in ordered if name != "get_team_news"]]
+        if self._is_spread_question(task):
+            ordered = ["get_live_nfl_spread", *[name for name in ordered if name != "get_live_nfl_spread"]]
         if any(word in lower for word in ["search", "latest", "current", "recent", "unknown", "unavailable", "what happened"]):
             ordered = [*ordered, "search_web"]
 
@@ -606,7 +647,8 @@ For a game prediction, use predict_scheduled_game and report its home/away proba
 
         task_text = task.strip()
         prediction_question = self._is_prediction_question(task_text)
-        database_first = self._is_stat_question(task_text) or prediction_question
+        spread_question = self._is_spread_question(task_text)
+        database_first = self._is_stat_question(task_text) or prediction_question or spread_question
         requested_season = self._season_for_question(task_text)
         priority_hint = self._tool_priority_hint(task_text)
         response = self.client.responses.create(

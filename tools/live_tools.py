@@ -3,12 +3,19 @@
 from __future__ import annotations
 
 import json
-from datetime import date
+import os
+import sqlite3
+from datetime import date, datetime, timezone
+from pathlib import Path
+from statistics import median
 from typing import Any
 from urllib import parse, request
 
 
 USER_AGENT = "sports-talk-agent/1.0"
+DB_PATH = Path(__file__).resolve().parents[1] / "db" / "nfl.db"
+NFL_ODDS_ENDPOINT = "https://api.the-odds-api.com/v4/sports/americanfootball_nfl/odds/"
+NFL_ODDS_SOURCE_URL = "https://the-odds-api.com/sports-odds-data/nfl-odds.html"
 
 
 def _fetch_json(url: str, timeout: int = 20) -> Any:
@@ -27,6 +34,223 @@ def _normalize_team_name(team: str) -> str:
     if not team:
         raise ValueError("team must not be empty")
     return team
+
+
+def _team_matches(candidate: str, requested: str) -> bool:
+    candidate_value = " ".join((candidate or "").lower().split())
+    requested_value = " ".join((requested or "").lower().split())
+    return bool(requested_value) and (
+        candidate_value == requested_value
+        or requested_value in candidate_value
+        or candidate_value in requested_value
+    )
+
+
+def _initialize_spread_storage(connection: sqlite3.Connection) -> None:
+    connection.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS nfl_spread (
+            event_id TEXT NOT NULL,
+            commence_time TEXT NOT NULL,
+            home_team TEXT NOT NULL,
+            away_team TEXT NOT NULL,
+            bookmaker_key TEXT NOT NULL,
+            bookmaker TEXT NOT NULL,
+            outcome_team TEXT NOT NULL,
+            spread_point REAL NOT NULL,
+            price REAL,
+            market_last_update TEXT,
+            fetched_at TEXT NOT NULL,
+            source_url TEXT NOT NULL,
+            PRIMARY KEY (event_id, bookmaker_key, outcome_team)
+        );
+
+        CREATE VIEW IF NOT EXISTS v_nfl_spread AS
+        SELECT event_id, commence_time, home_team, away_team, bookmaker_key,
+               bookmaker, outcome_team, spread_point, price,
+               market_last_update, fetched_at, source_url
+        FROM nfl_spread;
+        """
+    )
+
+
+def _store_spread_rows(
+    rows: list[dict[str, Any]],
+    db_path: Path | str | None = None,
+) -> int:
+    if not rows:
+        return 0
+
+    target = Path(db_path) if db_path is not None else DB_PATH
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(target) as connection:
+        _initialize_spread_storage(connection)
+        connection.executemany(
+            """
+            INSERT INTO nfl_spread (
+                event_id, commence_time, home_team, away_team,
+                bookmaker_key, bookmaker, outcome_team, spread_point,
+                price, market_last_update, fetched_at, source_url
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(event_id, bookmaker_key, outcome_team) DO UPDATE SET
+                commence_time = excluded.commence_time,
+                home_team = excluded.home_team,
+                away_team = excluded.away_team,
+                bookmaker = excluded.bookmaker,
+                spread_point = excluded.spread_point,
+                price = excluded.price,
+                market_last_update = excluded.market_last_update,
+                fetched_at = excluded.fetched_at,
+                source_url = excluded.source_url
+            """,
+            [
+                (
+                    row["event_id"],
+                    row["commence_time"],
+                    row["home_team"],
+                    row["away_team"],
+                    row["bookmaker_key"],
+                    row["bookmaker"],
+                    row["outcome_team"],
+                    row["spread_point"],
+                    row.get("price"),
+                    row.get("market_last_update"),
+                    row["fetched_at"],
+                    row["source_url"],
+                )
+                for row in rows
+            ],
+        )
+    return len(rows)
+
+
+def get_live_nfl_spread(
+    team_a: str,
+    team_b: str,
+    db_path: Path | str | None = None,
+) -> dict[str, Any]:
+    """Fetch current NFL point spreads and persist the matching bookmaker lines."""
+    team_a = _normalize_team_name(team_a)
+    team_b = _normalize_team_name(team_b)
+    api_key = (os.getenv("THE_ODDS_API_KEY") or "").strip()
+    if not api_key:
+        return {
+            "team_a": team_a,
+            "team_b": team_b,
+            "provider": "The Odds API",
+            "source_url": NFL_ODDS_SOURCE_URL,
+            "status": "unavailable",
+            "spreads": [],
+            "stored_rows": 0,
+            "error": "THE_ODDS_API_KEY is not configured.",
+        }
+
+    url = NFL_ODDS_ENDPOINT + "?" + parse.urlencode(
+        {
+            "apiKey": api_key,
+            "regions": "us",
+            "markets": "spreads",
+            "oddsFormat": "american",
+            "dateFormat": "iso",
+        }
+    )
+    payload = _fetch_json(url)
+    if isinstance(payload, dict) and payload.get("status") == "error":
+        return {
+            "team_a": team_a,
+            "team_b": team_b,
+            "provider": "The Odds API",
+            "source_url": NFL_ODDS_SOURCE_URL,
+            "status": "unavailable",
+            "spreads": [],
+            "stored_rows": 0,
+            "error": payload.get("error"),
+        }
+    if not isinstance(payload, list):
+        return {
+            "team_a": team_a,
+            "team_b": team_b,
+            "provider": "The Odds API",
+            "source_url": NFL_ODDS_SOURCE_URL,
+            "status": "unavailable",
+            "spreads": [],
+            "stored_rows": 0,
+            "error": "The odds provider returned an unexpected response.",
+        }
+
+    fetched_at = datetime.now(timezone.utc).isoformat()
+    matching_event: dict[str, Any] | None = None
+    rows: list[dict[str, Any]] = []
+    for event in payload:
+        home_team = event.get("home_team") or ""
+        away_team = event.get("away_team") or ""
+        requested_teams_match = (
+            _team_matches(home_team, team_a) and _team_matches(away_team, team_b)
+        ) or (
+            _team_matches(home_team, team_b) and _team_matches(away_team, team_a)
+        )
+        if not requested_teams_match:
+            continue
+
+        matching_event = event
+        for bookmaker in event.get("bookmakers") or []:
+            for market in bookmaker.get("markets") or []:
+                if market.get("key") != "spreads":
+                    continue
+                for outcome in market.get("outcomes") or []:
+                    point = outcome.get("point")
+                    if not outcome.get("name") or point is None:
+                        continue
+                    rows.append(
+                        {
+                            "event_id": event.get("id") or f"{away_team}-{home_team}-{event.get('commence_time')}",
+                            "commence_time": event.get("commence_time") or "unknown",
+                            "home_team": home_team,
+                            "away_team": away_team,
+                            "bookmaker_key": bookmaker.get("key") or bookmaker.get("title") or "unknown",
+                            "bookmaker": bookmaker.get("title") or bookmaker.get("key") or "Unknown",
+                            "outcome_team": outcome["name"],
+                            "spread_point": float(point),
+                            "price": outcome.get("price"),
+                            "market_last_update": market.get("last_update") or bookmaker.get("last_update"),
+                            "fetched_at": fetched_at,
+                            "source_url": NFL_ODDS_SOURCE_URL,
+                        }
+                    )
+        break
+
+    if matching_event is None or not rows:
+        return {
+            "team_a": team_a,
+            "team_b": team_b,
+            "provider": "The Odds API",
+            "source_url": NFL_ODDS_SOURCE_URL,
+            "status": "empty",
+            "spreads": [],
+            "stored_rows": 0,
+            "message": "No current spread was found for this NFL matchup.",
+        }
+
+    stored_rows = _store_spread_rows(rows, db_path=db_path)
+    home_team = matching_event["home_team"]
+    away_team = matching_event["away_team"]
+    home_points = [row["spread_point"] for row in rows if row["outcome_team"] == home_team]
+    away_points = [row["spread_point"] for row in rows if row["outcome_team"] == away_team]
+    return {
+        "provider": "The Odds API",
+        "source_url": NFL_ODDS_SOURCE_URL,
+        "status": "ok",
+        "event_id": matching_event.get("id"),
+        "commence_time": matching_event.get("commence_time"),
+        "home_team": home_team,
+        "away_team": away_team,
+        "consensus_home_spread": median(home_points) if home_points else None,
+        "consensus_away_spread": median(away_points) if away_points else None,
+        "bookmaker_count": len({row["bookmaker_key"] for row in rows}),
+        "spreads": rows,
+        "stored_rows": stored_rows,
+        "fetched_at": fetched_at,
+    }
 
 
 def get_weather_for_city(city: str, date_value: str | None = None) -> dict[str, Any]:

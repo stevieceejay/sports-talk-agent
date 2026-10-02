@@ -15,6 +15,7 @@ ALLOWED_OBJECTS = frozenset({
     "v_explosive_season",
     "v_player_game_stats",
     "v_team_game_stats",
+    "v_nfl_spread",
 })
 STAT_METRICS = frozenset({
     "passing_attempts", "completions", "passing_yards", "passing_tds",
