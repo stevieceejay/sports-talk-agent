@@ -40,6 +40,7 @@ function App() {
       )
     } finally {
       setIsLoading(false)
+      
     }
   }
 

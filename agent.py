@@ -393,7 +393,7 @@ For a current NFL point spread, always use get_live_nfl_spread. Report the provi
                     "type": "object",
                     "properties": {
                         "city": {"type": "string"},
-                        "date_value": {"type": "string", "nullable": True},
+                        "date_value": {"type": ["string", "null"]},
                     },
                     "required": ["city", "date_value"],
                     "additionalProperties": False,
